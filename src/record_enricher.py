@@ -11,17 +11,19 @@ from kafka_senders import send_file_to_kafka, send_stream_to_kafka
 BROKER = 'sandbox-hdp.hortonworks.com:6667'
 
 
-def send_to_network(line):
+def send_to_network(key, value):
     """This function sends a raw monitoring record to a Java Gateway and receives the enriched reply as a json.
 
-    :param line: Input record as a line of comma-separated values.
-    :type line: str.
+    :param key: Key of the input monitoring record.
+    :type key: str.
+    :param value: Value of the input monitoring record.
+    :type value: str.
     :return: json -- the required enriched monitoring record in a json format.
     """
     gateway = JavaGateway()
-    values = MonitoringRecord(line).to_list()
+    values = MonitoringRecord(value).to_list()
     raw_record = gateway.jvm.com.epam.bcc.htm.MonitoringRecord(*values)
-    record = gateway.entry_point.mappingFunc('1', raw_record).toJson()
+    record = gateway.entry_point.mappingFunc(key, raw_record).toJson()
     return record
 
 
@@ -48,7 +50,7 @@ def process_stream(stream):
     :type stream: DStream.
     :return: DStream -- output data stream of enriched monitoring records.
     """
-    return stream.mapValues(lambda value: send_to_network(value)).mapValues(MonitoringRecord.from_json)
+    return stream.map(lambda record: send_to_network(record[0], record[1])).mapValues(MonitoringRecord.from_json)
 
 
 if __name__ == '__main__':

@@ -86,4 +86,5 @@ class MonitoringRecord:
 
         :return: int -- the int number in 0..NUM_PARTITIONS-1
         """
-        return abs(hash(self.date_local + self.time_local + self.sample_measurement) % NUM_PARTITIONS)
+        return '-'.join([self.state_code, self.country_code, self.site_num, self.parameter_code, self.poc])
+
