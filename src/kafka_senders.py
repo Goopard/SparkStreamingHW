@@ -1,7 +1,16 @@
 from kafka import KafkaProducer
-from functools import partial
+
+from contextlib import contextmanager
 
 from monitoring_record import MonitoringRecord
+
+
+@contextmanager
+def context_manager_producer(**kwargs):
+    producer = KafkaProducer(**kwargs)
+    yield producer
+    producer.flush()
+    producer.close()
 
 
 def send_file_to_kafka(path, topic, broker):
@@ -15,10 +24,13 @@ def send_file_to_kafka(path, topic, broker):
     :type broker: str.
     :return:
     """
-    with open(path, 'r') as file:
+    with open(path, 'r') as file, context_manager_producer(bootstrap_servers=broker, key_serializer=serializer,
+                                                           value_serializer=serializer) as producer:
         contents = file.read().splitlines()
         for line in contents:
-            send_record_to_kafka(MonitoringRecord(line), topic, broker)
+            if line:
+                record = MonitoringRecord(*line.split(','))
+                producer.send(topic, key=record.get_key(), value=record)
 
 
 def serializer(record):
@@ -42,10 +54,9 @@ def send_record_to_kafka(record, topic, broker):
     :param broker: Kafka broker to use.
     :type broker: str.
     """
-    producer = KafkaProducer(bootstrap_servers=broker, key_serializer=serializer, value_serializer=serializer)
-    producer.send(topic, key=record.get_key(), value=record)
-    producer.flush()
-    producer.close()
+    with context_manager_producer(bootstrap_servers=broker, key_serializer=serializer, value_serializer=serializer) \
+            as producer:
+        producer.send(topic, key=record.get_key(), value=record)
 
 
 def send_stream_to_kafka(stream, topic, broker):
@@ -58,4 +69,8 @@ def send_stream_to_kafka(stream, topic, broker):
     :param broker: Kafka broker to use.
     :type broker: str.
     """
-    stream.foreachRDD(lambda rdd: rdd.foreach(lambda record: send_record_to_kafka(record[1], topic, broker)))
+    def send_partition_to_kafka(partition):
+        for record in partition:
+            send_record_to_kafka(record, topic, broker)
+
+    stream.foreachRDD(lambda rdd: rdd.foreachPartition(send_partition_to_kafka))
